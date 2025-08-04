@@ -26,7 +26,7 @@ jobs:
         python -c "import PyQt5; print('PyQt5 OK')"
         ls -la
         # 尝试最简单的打包
-        pyinstaller --onefile PLNet4.py || echo "Build failed, but continuing..."
+        pyinstaller --onefile PLNet.py || echo "Build failed, but continuing..."
     - name: Upload any results
       uses: actions/upload-artifact@v4
       with:
