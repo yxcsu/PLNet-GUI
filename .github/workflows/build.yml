@@ -78,14 +78,46 @@ jobs:
         pip install wheel setuptools
         pip install -r requirements.txt
         
-    - name: Build with PyInstaller
+    - name: Test Python and PyQt installation
       run: |
-        pyinstaller --onefile --windowed --clean \
+        python --version
+        python -c "import PyQt5; print('PyQt5 version:', PyQt5.QtCore.PYQT_VERSION_STR)"
+        python -c "import sys; print('Python path:', sys.executable)"
+        
+    - name: Check project files
+      run: |
+        ls -la
+        echo "Checking PLNet4.py:"
+        head -10 PLNet4.py || echo "PLNet4.py not found or unreadable"
+        echo "Checking res directory:"
+        ls -la res/ || echo "res directory not found"
+        echo "Checking PLNet.ico:"
+        ls -la PLNet.ico || echo "PLNet.ico not found"
+        
+    - name: Build with PyInstaller (Debug mode)
+      run: |
+        pyinstaller --onefile --windowed --clean --debug all \
           --icon=PLNet.ico \
           --add-data "res${{ matrix.separator }}res" \
           --hidden-import PyQt5.sip \
-          --name PLNet-${{ matrix.name-suffix }} \
-          PLNet.py
+          --hidden-import PyQt5.QtCore \
+          --hidden-import PyQt5.QtGui \
+          --hidden-import PyQt5.QtWidgets \
+          --log-level DEBUG \
+          --name PLNet4-${{ matrix.name-suffix }} \
+          PLNet4.py
+          
+    - name: Show build logs on failure
+      if: failure()
+      run: |
+        echo "=== PyInstaller build directory ==="
+        ls -la build/ || echo "No build directory"
+        echo "=== PyInstaller dist directory ==="
+        ls -la dist/ || echo "No dist directory"
+        echo "=== PyInstaller warnings file ==="
+        cat build/PLNet4-${{ matrix.name-suffix }}/warn-PLNet4-${{ matrix.name-suffix }}.txt || echo "No warnings file"
+        echo "=== Last 50 lines of any log files ==="
+        find . -name "*.log" -exec echo "File: {}" \; -exec tail -50 {} \; || echo "No log files found"
         
     - name: Verify build output
       run: |
@@ -95,8 +127,8 @@ jobs:
       shell: bash
       run: |
         mkdir -p dist-final
-        if [ -f "dist/PLNet-${{ matrix.name-suffix }}${{ matrix.executable-suffix }}" ]; then
-          cp "dist/PLNet-${{ matrix.name-suffix }}${{ matrix.executable-suffix }}" dist-final/
+        if [ -f "dist/PLNet4-${{ matrix.name-suffix }}${{ matrix.executable-suffix }}" ]; then
+          cp "dist/PLNet4-${{ matrix.name-suffix }}${{ matrix.executable-suffix }}" dist-final/
           echo "✅ Build successful for ${{ matrix.name-suffix }}"
         else
           echo "❌ Build failed for ${{ matrix.name-suffix }}"
@@ -106,7 +138,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4  # 使用最新版本
       with:
-        name: PLNet-${{ matrix.name-suffix }}
+        name: PLNet4-${{ matrix.name-suffix }}
         path: dist-final/
         retention-days: 30
         compression-level: 6
@@ -135,13 +167,13 @@ jobs:
       uses: softprops/action-gh-release@v2  # 使用现代的release action
       with:
         tag_name: ${{ github.ref_name }}
-        name: PLNet ${{ github.ref_name }}
+        name: PLNet4 ${{ github.ref_name }}
         draft: false
         prerelease: false
         generate_release_notes: true
         files: |
-          artifacts/PLNet-Windows/PLNet-Windows.exe
-          artifacts/PLNet-macOS/PLNet-macOS
-          artifacts/PLNet-Linux/PLNet-Linux
+          artifacts/PLNet4-Windows/PLNet4-Windows.exe
+          artifacts/PLNet4-macOS/PLNet4-macOS
+          artifacts/PLNet4-Linux/PLNet4-Linux
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
