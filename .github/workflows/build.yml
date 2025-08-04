@@ -11,9 +11,24 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false  # 不要因为一个平台失败就取消其他平台
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-        python-version: [3.9]
+        include:
+          - os: windows-latest
+            python-version: '3.9'
+            executable-suffix: '.exe'
+            separator: ';'
+            name-suffix: 'Windows'
+          - os: macos-latest
+            python-version: '3.9'
+            executable-suffix: ''
+            separator: ':'
+            name-suffix: 'macOS'
+          - os: ubuntu-20.04  # 使用稳定的Ubuntu版本
+            python-version: '3.9'
+            executable-suffix: ''
+            separator: ':'
+            name-suffix: 'Linux'
     
     runs-on: ${{ matrix.os }}
     
@@ -22,80 +37,79 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5  # 使用最新版本
       with:
         python-version: ${{ matrix.python-version }}
         
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4  # 使用最新版本
       with:
-        path: ~/.cache/pip
+        path: |
+          ~/.cache/pip
+          ~/.cache/pyinstaller
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
           
-    - name: Install system dependencies (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
+    - name: Install system dependencies (Linux)
+      if: runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y \
+          python3-pyqt5 \
+          python3-pyqt5.qtcore \
+          python3-pyqt5.qtgui \
+          python3-pyqt5.qtwidgets \
           libgl1-mesa-glx \
-          libx11-xcb1 \
-          libxcb-icccm4 \
-          libxcb-image0 \
-          libxcb-keysyms1 \
-          libxcb-randr0 \
-          libxcb-render-util0 \
-          libxcb-xinerama0 \
-          libxcb-xfixes0 \
-          libxkbcommon-x11-0 \
-          libxcb-shape0
+          libglib2.0-0 \
+          libxrender1 \
+          libxrandr2 \
+          libxss1 \
+          libxcursor1 \
+          libxcomposite1 \
+          libasound2 \
+          libxi6 \
+          libxtst6 \
+          qt5-gtk-platformtheme
           
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install wheel setuptools
         pip install -r requirements.txt
         
-    - name: Build with PyInstaller (Windows)
-      if: matrix.os == 'windows-latest'
+    - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --icon=PLNet.ico --add-data "res;res" --name PLNet-Windows PLNet.py
+        pyinstaller --onefile --windowed --clean \
+          --icon=PLNet.ico \
+          --add-data "res${{ matrix.separator }}res" \
+          --hidden-import PyQt5.sip \
+          --name PLNet-${{ matrix.name-suffix }} \
+          PLNet.py
         
-    - name: Build with PyInstaller (macOS)
-      if: matrix.os == 'macos-latest'
+    - name: Verify build output
       run: |
-        pyinstaller --onefile --windowed --icon=PLNet.ico --add-data "res:res" --name PLNet-macOS PLNet.py
+        ls -la dist/
         
-    - name: Build with PyInstaller (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        pyinstaller --onefile --windowed --icon=PLNet.ico --add-data "res:res" --name PLNet-Linux PLNet.py
-        
-    - name: Create distribution directory
+    - name: Prepare distribution
+      shell: bash
       run: |
         mkdir -p dist-final
-        
-    - name: Copy Windows executable
-      if: matrix.os == 'windows-latest'
-      run: |
-        copy dist\PLNet-Windows.exe dist-final\
-        
-    - name: Copy macOS executable
-      if: matrix.os == 'macos-latest'
-      run: |
-        cp dist/PLNet-macOS dist-final/
-        
-    - name: Copy Linux executable
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        cp dist/PLNet-Linux dist-final/
+        if [ -f "dist/PLNet-${{ matrix.name-suffix }}${{ matrix.executable-suffix }}" ]; then
+          cp "dist/PLNet-${{ matrix.name-suffix }}${{ matrix.executable-suffix }}" dist-final/
+          echo "✅ Build successful for ${{ matrix.name-suffix }}"
+        else
+          echo "❌ Build failed for ${{ matrix.name-suffix }}"
+          exit 1
+        fi
         
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # 使用最新版本
       with:
-        name: PLNet-${{ matrix.os }}
+        name: PLNet-${{ matrix.name-suffix }}
         path: dist-final/
         retention-days: 30
+        compression-level: 6
 
   # 创建Release（仅在推送tag时）
   release:
@@ -108,45 +122,26 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
-      
+      uses: actions/download-artifact@v4  # 使用最新版本
+      with:
+        path: artifacts/
+        
+    - name: Display downloaded artifacts
+      run: |
+        find artifacts/ -type f -ls
+        
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2  # 使用现代的release action
       with:
-        tag_name: ${{ github.ref }}
-        release_name: PLNet ${{ github.ref }}
+        tag_name: ${{ github.ref_name }}
+        name: PLNet ${{ github.ref_name }}
         draft: false
         prerelease: false
-        
-    - name: Upload Windows Release Asset
-      uses: actions/upload-release-asset@v1
+        generate_release_notes: true
+        files: |
+          artifacts/PLNet-Windows/PLNet-Windows.exe
+          artifacts/PLNet-macOS/PLNet-macOS
+          artifacts/PLNet-Linux/PLNet-Linux
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: PLNet-windows-latest/PLNet-Windows.exe
-        asset_name: PLNet-Windows.exe
-        asset_content_type: application/octet-stream
-        
-    - name: Upload macOS Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: PLNet-macos-latest/PLNet-macOS
-        asset_name: PLNet-macOS
-        asset_content_type: application/octet-stream
-        
-    - name: Upload Linux Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: PLNet-ubuntu-latest/PLNet-Linux
-        asset_name: PLNet-Linux
-        asset_content_type: application/octet-stream
